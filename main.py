@@ -471,59 +471,84 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает команды, проверяя права доступа"""
-    if not is_boss_user(update):
-        await update.message.reply_text("У вас нет прав для выполнения команд.")
-        logger.warning(f"Попытка выполнить команду от неавторизованного пользователя: {update.effective_user.username}")
-        return
-    
-    text = update.message.text or ""
-    parts = text.split()
-    command = parts[0] if parts else ""
+    try:
+        logger.info(f"Получена команда от пользователя: {update.effective_user.username if update.effective_user else 'неизвестно'}")
+        
+        if not is_boss_user(update):
+            await update.message.reply_text("У вас нет прав для выполнения команд.")
+            logger.warning(f"Попытка выполнить команду от неавторизованного пользователя: {update.effective_user.username if update.effective_user else 'неизвестно'}")
+            return
+        
+        text = update.message.text or ""
+        parts = text.split()
+        command = parts[0] if parts else ""
+        
+        logger.info(f"Обработка команды: {command}")
 
-    if command == "/status":
-        await handle_status_command(update, context)
-    else:
-        await update.message.reply_text(
-            "Команда получена. Доступные команды:\n"
-            "/status - показать статус на сегодня и последние дни\n"
-        )
+        if command == "/status":
+            await handle_status_command(update, context)
+        else:
+            await update.message.reply_text(
+                "Команда получена. Доступные команды:\n"
+                "/status - показать статус на сегодня и последние дни\n"
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при обработке команды: {e}", exc_info=True)
+        try:
+            await update.message.reply_text("Произошла ошибка при обработке команды.")
+        except:
+            pass
 
 
 async def handle_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает текущий статус и небольшую историю по выходным."""
-    today = datetime.now().date()
-    history = load_vacation_history()
+    try:
+        logger.info("Выполняется команда /status")
+        today = datetime.now().date()
+        history = load_vacation_history()
+        
+        logger.info(f"Загружена история: {len(history)} записей")
 
-    lines = []
-    today_key = _date_key(today)
-    today_info = _ensure_day_record(history, today)
-    day_status = today_info.get("day_status")
-    if day_status == "vacation":
-        today_status = "выходной"
-    elif day_status == "work":
-        today_status = "рабочий день"
-    else:
-        today_status = "статус не определён"
-    lines.append(f"Сегодня ({today_key}): {today_status}")
+        lines = []
+        today_key = _date_key(today)
+        today_info = _ensure_day_record(history, today)
+        day_status = today_info.get("day_status")
+        if day_status == "vacation":
+            today_status = "выходной"
+        elif day_status == "work":
+            today_status = "рабочий день"
+        else:
+            today_status = "статус не определён"
+        lines.append(f"Сегодня ({today_key}): {today_status}")
 
-    # Последние 5 дней истории (кроме сегодняшнего)
-    keys = sorted(history.keys(), reverse=True)
-    other_days = [k for k in keys if k != today_key][:5]
-    if other_days:
-        lines.append("\nПоследние дни:")
-        for k in other_days:
-            info = history[k]
-            day_status = info.get("day_status")
-            if day_status == "vacation":
-                status_text = "выходной"
-            elif day_status == "work":
-                status_text = "рабочий день"
-            else:
-                status_text = "статус не определён"
-            src = info.get("answer_source", "неизвестно")
-            lines.append(f"- {k}: {status_text} (source={src})")
+        # Последние 5 дней истории (кроме сегодняшнего)
+        keys = sorted(history.keys(), reverse=True)
+        other_days = [k for k in keys if k != today_key][:5]
+        if other_days:
+            lines.append("\nПоследние дни:")
+            for k in other_days:
+                info = history.get(k, {})
+                if not isinstance(info, dict):
+                    continue
+                day_status = info.get("day_status")
+                if day_status == "vacation":
+                    status_text = "выходной"
+                elif day_status == "work":
+                    status_text = "рабочий день"
+                else:
+                    status_text = "статус не определён"
+                src = info.get("answer_source", "неизвестно")
+                lines.append(f"- {k}: {status_text} (source={src})")
 
-    await update.message.reply_text("\n".join(lines))
+        response_text = "\n".join(lines)
+        logger.info(f"Отправка ответа: {response_text}")
+        await update.message.reply_text(response_text)
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении команды /status: {e}", exc_info=True)
+        try:
+            await update.message.reply_text("Произошла ошибка при получении статуса.")
+        except:
+            pass
 
 
 async def start_scheduler():
@@ -579,6 +604,7 @@ async def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(CommandHandler("start", handle_command))
     application.add_handler(CommandHandler("help", handle_command))
+    application.add_handler(CommandHandler("status", handle_command))
     
     # Запускаем обработку обновлений
     await application.initialize()
