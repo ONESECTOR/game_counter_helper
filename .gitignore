@@ -43,3 +43,7 @@ Thumbs.db
 
 # AI Context
 .ai-context/
+
+# Deploy scripts
+deploy.sh
+DEPLOY.md
