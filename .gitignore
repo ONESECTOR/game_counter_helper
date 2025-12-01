@@ -40,3 +40,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# AI Context
+.ai-context/
