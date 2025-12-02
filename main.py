@@ -248,6 +248,30 @@ async def check_boss_availability() -> bool:
         return False
 
 
+async def check_and_ask_vacation_if_needed():
+    """Проверяет, нужно ли задать вопрос о выходном сегодня, и задаёт его если нужно."""
+    try:
+        today = datetime.now().date()
+        history = load_vacation_history()
+        info = _ensure_day_record(history, today)
+        
+        # Если вопрос уже был задан или уже есть ответ - ничего не делаем
+        if info.get("question_sent") or info.get("answered"):
+            logger.info("Вопрос о выходном за сегодня уже был задан или уже есть ответ")
+            return
+        
+        # Если босс недоступен - ничего не делаем
+        if not BOSS_CHAT_ID:
+            logger.warning("BOSS_CHAT_ID не задан, пропускаем проверку")
+            return
+        
+        # Задаём вопрос
+        logger.info("Вопрос о выходном за сегодня ещё не был задан - задаём сейчас")
+        await ask_about_vacation()
+    except Exception as e:
+        logger.error(f"Ошибка при проверке необходимости задать вопрос: {e}")
+
+
 async def check_and_send_message():
     try:
         today = datetime.now().date()
@@ -487,15 +511,39 @@ async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if command == "/status":
             await handle_status_command(update, context)
+        elif command == "/ask":
+            await handle_ask_command(update, context)
         else:
             await update.message.reply_text(
                 "Команда получена. Доступные команды:\n"
                 "/status - показать статус на сегодня и последние дни\n"
+                "/ask - отправить вопрос о выходном (если ещё не отправлен)\n"
             )
     except Exception as e:
         logger.error(f"Ошибка при обработке команды: {e}", exc_info=True)
         try:
             await update.message.reply_text("Произошла ошибка при обработке команды.")
+        except:
+            pass
+
+
+async def handle_ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет вопрос о выходном боссу вручную."""
+    try:
+        today = datetime.now().date()
+        history = load_vacation_history()
+        info = _ensure_day_record(history, today)
+        
+        if info.get("answered"):
+            await update.message.reply_text("На вопрос о выходном за сегодня уже дан ответ.")
+            return
+        
+        await ask_about_vacation()
+        await update.message.reply_text("Вопрос о выходном отправлен.")
+    except Exception as e:
+        logger.error(f"Ошибка при ручной отправке вопроса: {e}", exc_info=True)
+        try:
+            await update.message.reply_text("Произошла ошибка при отправке вопроса.")
         except:
             pass
 
@@ -613,6 +661,9 @@ async def main():
     
     # Запускаем планировщик
     await start_scheduler()
+    
+    # Проверяем, нужно ли задать вопрос о выходном сегодня (если бот запущен позже)
+    await check_and_ask_vacation_if_needed()
     
     try:
         while True:
